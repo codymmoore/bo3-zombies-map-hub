@@ -120,6 +120,7 @@ def upgrade() -> None:
         sa.Column("round_number", sa.Integer(), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=False),
         sa.Column("started_at", TS, nullable=False),
+        sa.Column("playing_started_at", TS, nullable=True),
         sa.Column("ended_at", TS, nullable=True),
         sa.Column("message_id", ID, nullable=True),
         sa.ForeignKeyConstraint(["map_id"], ["maps.id"]),

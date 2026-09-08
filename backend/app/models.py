@@ -231,6 +231,9 @@ class SessionRound(Base):
     # started_at = when the round was opened (map picked). This is also the value
     # that feeds Map.last_played_at.
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Set on the downloading -> playing transition. A skipped round with this set
+    # was actually played, so it keeps counting toward times_played/last_played_at.
+    playing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # The bot's map-card message in the session thread, edited in place.
     message_id: Mapped[str | None] = mapped_column(ID)

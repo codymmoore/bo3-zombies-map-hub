@@ -10,6 +10,8 @@ from app.services import serialize, sessions as session_service
 
 router = APIRouter(prefix="/maps", tags=["maps"])
 
+LOOKUP_MAX_IDS = 200
+
 
 @router.post("", response_model=schemas.MapOut, status_code=201)
 def add_map(body: schemas.MapCreate, db: DbDep, steam: SteamDep, user: UserDep, response: Response) -> schemas.MapOut:
@@ -26,8 +28,11 @@ def lookup_maps(
     user: UserDep,
     workshop_ids: str = Query(description="Comma-separated workshop IDs", max_length=4000),
 ) -> schemas.MapLookupOut:
-    """Batch check which workshop IDs are already in the library (for the extension)."""
-    ids = [w.strip() for w in workshop_ids.split(",") if w.strip()][:200]
+    """Batch check which workshop IDs are already in the library (for the extension).
+    Max 200 per call; the extension chunks larger grids."""
+    ids = [w.strip() for w in workshop_ids.split(",") if w.strip()]
+    if len(ids) > LOOKUP_MAX_IDS:
+        raise ApiError(400, "too_many_ids", f"At most {LOOKUP_MAX_IDS} workshop IDs per lookup", max=LOOKUP_MAX_IDS)
     return schemas.MapLookupOut(found=map_service.lookup_by_workshop_ids(db, ids))
 
 

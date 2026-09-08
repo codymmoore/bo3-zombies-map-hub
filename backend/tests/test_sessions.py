@@ -171,7 +171,11 @@ def test_full_lifecycle(users, guild, bot, db):
     assert [m["round_number"] for m in summary["maps_played"]] == [1]
 
     # ack: the bot's cursor lives in the backend
-    assert bot.post("/internal/events/ack", json={"up_to_id": ev[-1]["id"]}).json()["acked"] == len(ev)
+    # explicit ids, not a high-water mark: skipping one in the middle keeps it queued
+    ids = [e["id"] for e in ev]
+    assert bot.post("/internal/events/ack", json={"ids": ids[:1] + ids[2:]}).json()["acked"] == len(ev) - 1
+    assert [e["id"] for e in bot.events()] == [ids[1]]
+    assert bot.post("/internal/events/ack", json={"ids": [ids[1]]}).json()["acked"] == 1
     assert bot.events() == []
 
     # everyone is free to start a new session again
@@ -232,6 +236,30 @@ def test_host_leaving_promotes_or_cancels(users, guild, bot):
     assert host.post(f"/sessions/{s['id']}/players").json()["detail"]["code"] == "session_not_active"
 
 
+def test_session_detail_query_count_is_flat(users, guild, engine):
+    """GET /sessions/{id} is polled every few seconds: its query count must not
+    grow with the number of rounds."""
+    from sqlalchemy import event
+
+    host = users["host"]
+    maps = [add_map(host, w) for w in ("111", "222", "333")]
+    s = host.post("/sessions", json={"name": "Q", "guild_id": guild}).json()
+
+    def count_queries(n_rounds: int) -> int:
+        while len(host.get(f"/sessions/{s['id']}").json()["rounds"]) < n_rounds:
+            host.post(f"/sessions/{s['id']}/rounds", json={"map_id": maps[n_rounds % 3]["id"]})
+        statements = []
+        listener = lambda conn, cursor, stmt, params, ctx, many: statements.append(stmt)  # noqa: E731
+        event.listen(engine, "before_cursor_execute", listener)
+        try:
+            assert host.get(f"/sessions/{s['id']}").status_code == 200
+        finally:
+            event.remove(engine, "before_cursor_execute", listener)
+        return len(statements)
+
+    assert count_queries(1) == count_queries(6)
+
+
 def test_leaving_during_download_updates_ready_count(users, guild):
     host, alice = users["host"], users["alice"]
     m = add_map(host, "111")
@@ -266,11 +294,22 @@ def test_swap_map_and_skip(users, guild, db):
 
     # skipping a playing round keeps the play stats
     rnd2 = host.post(f"/sessions/{s['id']}/rounds", json={"map_id": a["id"]}).json()
-    host.patch(f"/rounds/{rnd2['id']}", json={"status": "playing"})
+    r = host.patch(f"/rounds/{rnd2['id']}", json={"status": "playing"})
+    assert r.json()["playing_started_at"] is not None
     assert host.patch(f"/rounds/{rnd2['id']}", json={"map_id": b["id"]}).json()["detail"]["code"] == "round_not_downloading"
     host.patch(f"/rounds/{rnd2['id']}", json={"status": "skipped"})
     db.expire_all()
     assert db.get(Map, a["id"]).times_played == 1
+    played_at = db.get(Map, a["id"]).last_played_at
+    assert played_at is not None
+
+    # a later never-played round is skipped: last_played_at falls back to the
+    # played-then-skipped round, consistent with times_played still counting it
+    rnd3 = host.post(f"/sessions/{s['id']}/rounds", json={"map_id": a["id"]}).json()
+    host.patch(f"/rounds/{rnd3['id']}", json={"status": "skipped"})
+    db.expire_all()
+    assert db.get(Map, a["id"]).times_played == 1
+    assert db.get(Map, a["id"]).last_played_at == played_at
 
 
 def test_admin_can_drive_session(users, guild, membership):
@@ -295,6 +334,13 @@ def test_non_member_and_discord_outage(users, guild, membership):
     assert r.status_code == 503 and r.json()["detail"]["code"] == "discord_unavailable"
     membership.available = True
     assert alice.post(f"/sessions/{s['id']}/players").status_code == 200
+
+    # someone removed from the server can't ready up, but can still leave
+    m = add_map(host, "111")
+    rnd = host.post(f"/sessions/{s['id']}/rounds", json={"map_id": m["id"]}).json()
+    membership.remove(GUILD, ALICE)
+    assert alice.post(f"/rounds/{rnd['id']}/ready").json()["detail"]["code"] == "not_a_member"
+    assert alice.delete(f"/sessions/{s['id']}/players/me").status_code == 200
 
 
 def test_unrated_by_session_roster(users, guild):

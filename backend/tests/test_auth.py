@@ -85,3 +85,23 @@ def test_api_tokens(users, client):
     assert client.get("/auth/me", headers=headers).status_code == 401
     assert host.get("/tokens").json() == []
     assert client.get("/auth/me", headers={"Authorization": "Bearer hub_bogus"}).status_code == 401
+
+    # a dead token must not degrade to an anonymous read
+    r = client.get("/maps", headers=headers)
+    assert r.status_code == 401 and r.json()["detail"]["code"] == "invalid_token"
+    assert client.get("/maps").status_code == 200
+
+
+def test_prod_refuses_placeholder_secrets(monkeypatch):
+    import pytest
+
+    from app.config import Settings
+
+    with pytest.raises(ValueError, match="SECRET_KEY"):
+        Settings(env="prod", secret_key="change-me", internal_api_token="x" * 32, _env_file=None)
+    with pytest.raises(ValueError, match="INTERNAL_API_TOKEN"):
+        Settings(env="prod", secret_key="s" * 32, internal_api_token="change-me-too", _env_file=None)
+    ok = Settings(env="prod", secret_key="s" * 32, internal_api_token="t" * 16, _env_file=None)
+    assert ok.secret_problems() == []
+    # dev only warns
+    assert Settings(env="dev", secret_key="change-me", _env_file=None).secret_problems()

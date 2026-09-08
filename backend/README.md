@@ -4,6 +4,9 @@ FastAPI + SQLAlchemy + Alembic + Postgres. See the root `CLAUDE.md` for the desi
 
 ## Run locally
 
+Set `ENV=prod` on real deployments: the app then refuses to start with the
+placeholder `SECRET_KEY` / `INTERNAL_API_TOKEN` from `.env.example`.
+
 ```bash
 cd backend
 python -m venv .venv
@@ -55,7 +58,10 @@ change. The bot loop is:
 
 1. `GET /internal/events?limit=50` -> list of undelivered events, oldest first.
 2. Act on each (post/edit Discord messages).
-3. `POST /internal/events/ack {"up_to_id": <last id>}`.
+3. `POST /internal/events/ack {"ids": [<ids actually processed>]}`.
+
+Run exactly one bot instance: polling doesn't reserve rows, so replicas would
+double-post.
 
 Payloads are self-contained (`session`, `round`, `round.map` with rating aggregates,
 `summary` on `session.ended`). After creating the thread the bot calls

@@ -83,6 +83,8 @@ def join_session(session_id: int, db: DbDep, membership: MembershipDep, user: Us
 
 @router.delete("/{session_id}/players/me", response_model=schemas.SessionDetail)
 def leave_session(session_id: int, db: DbDep, user: UserDep) -> schemas.SessionDetail:
+    """Deliberately no membership check: someone removed from the Discord server
+    must still be able to leave, or they'd be stuck in an active session forever."""
     session = session_service.get_session_or_404(db, session_id)
     session = session_service.leave_session(db, session, user.discord_id)
     return serialize.session_detail(db, session, user.discord_id)
@@ -120,4 +122,4 @@ def open_round(
 def list_rounds(session_id: int, db: DbDep, membership: MembershipDep, user: UserDep) -> list[schemas.RoundOut]:
     session = session_service.get_session_or_404(db, session_id)
     require_member(membership, session.guild_id, user.discord_id)
-    return serialize.session_detail(db, session, user.discord_id).rounds
+    return serialize.rounds_out(db, session.rounds, user.discord_id)

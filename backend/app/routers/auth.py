@@ -79,6 +79,8 @@ def discord_callback(
 
 @router.post("/logout", status_code=204)
 def logout(response: Response, settings: SettingsDep) -> None:
+    """Clears the cookie only. Sessions are stateless JWTs, so a copied cookie stays
+    valid until it expires; that's a deliberate MVP trade-off (no session table)."""
     response.delete_cookie(settings.session_cookie_name)
 
 

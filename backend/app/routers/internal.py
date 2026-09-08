@@ -1,7 +1,12 @@
 """Endpoints for the Discord bot service, authenticated with X-Internal-Token.
 
 The bot polls events, acts on them, then acks. Its cursor therefore lives in the
-backend (delivered_at), so a bot restart resumes where it left off."""
+backend (delivered_at), so a bot restart resumes where it left off.
+
+SINGLE-INSTANCE ASSUMPTION: poll_events does not reserve rows, so two bot
+replicas would both act on the same events and double-post to Discord. Run one
+bot. If that ever changes, add a claimed_at/claimed_by lease to Event.
+"""
 
 from fastapi import APIRouter, Query
 from sqlalchemy import select, update
@@ -17,14 +22,18 @@ router = APIRouter(prefix="/internal", tags=["internal"], dependencies=[BotDep])
 
 @router.get("/events", response_model=list[schemas.EventOut])
 def poll_events(db: DbDep, limit: int = Query(default=50, ge=1, le=200)) -> list[schemas.EventOut]:
+    """Undelivered events, oldest first. Events stay here until acked, so a bot
+    that crashes mid-batch sees the unacked ones again."""
     rows = db.scalars(select(Event).where(Event.delivered_at.is_(None)).order_by(Event.id).limit(limit)).all()
     return [schemas.EventOut.model_validate(r) for r in rows]
 
 
 @router.post("/events/ack")
 def ack_events(body: schemas.EventAck, db: DbDep) -> dict[str, int]:
+    """Ack exactly the events the bot processed. Explicit IDs rather than a
+    high-water mark so a partial failure in the middle of a batch can't drop events."""
     result = db.execute(
-        update(Event).where(Event.id <= body.up_to_id, Event.delivered_at.is_(None)).values(delivered_at=utcnow())
+        update(Event).where(Event.id.in_(body.ids), Event.delivered_at.is_(None)).values(delivered_at=utcnow())
     )
     db.commit()
     return {"acked": result.rowcount}

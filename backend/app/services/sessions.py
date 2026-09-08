@@ -6,7 +6,7 @@ Host-leaves rule (chosen, applied consistently): promote the longest-tenured
 remaining player; if nobody is left, cancel the session.
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -306,6 +306,7 @@ def transition_round(db: Session, rnd: SessionRound, new_status: str) -> Session
     now = utcnow()
     if new_status == RoundStatus.PLAYING:
         rnd.status = RoundStatus.PLAYING
+        rnd.playing_started_at = now
         db.flush()
         events.emit_round_event(db, EventType.ROUND_STARTED, rnd)
     else:
@@ -331,12 +332,13 @@ def _close_round(db: Session, rnd: SessionRound, now, *, emit_event: bool, statu
 
 def _rollback_play_stats(db: Session, m: Map, rnd: SessionRound) -> None:
     """Undo the increment done when the round opened, recomputing last_played_at
-    from the map's other non-skipped rounds."""
+    from the map's other rounds that still count as plays: everything except
+    rounds skipped before anyone played them (same rule as times_played)."""
     m.times_played = max(0, m.times_played - 1)
     m.last_played_at = db.scalar(
         select(func.max(SessionRound.started_at)).where(
             SessionRound.map_id == m.id,
             SessionRound.id != rnd.id,
-            SessionRound.status != RoundStatus.SKIPPED,
+            or_(SessionRound.status != RoundStatus.SKIPPED, SessionRound.playing_started_at.is_not(None)),
         )
     )

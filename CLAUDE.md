@@ -105,7 +105,10 @@ SessionPlayer
 
 SessionRound
   id, session_id -> PlaySession, map_id -> Map, round_number,
-  status, started_at, ended_at, message_id (nullable)
+  status, started_at, playing_started_at (nullable), ended_at, message_id (nullable)
+  # started_at = when the map was picked; playing_started_at = downloading -> playing.
+  # A skipped round with playing_started_at set was actually played and keeps
+  # counting toward times_played / last_played_at.
   # partial unique index on session_id WHERE status != 'completed'
   #   -> only one open round per session
   # UNIQUE (session_id, round_number)
@@ -204,11 +207,22 @@ PATCH  /sessions/{id}             # internal: bot reports thread_id/root_message
 POST   /sessions/{id}/players     # join (409 if already in another session)
 DELETE /sessions/{id}/players/me  # leave
 POST   /sessions/{id}/complete
+POST   /sessions/{id}/cancel      # host/admin: end with status=cancelled
 
 POST   /sessions/{id}/rounds      # host only: pick a map, opens a new round
 GET    /sessions/{id}/rounds      # history
 PATCH  /rounds/{id}               # host only: status transitions, or swap the map
 POST   /rounds/{id}/ready         # caller marks themselves ready
+
+GET    /maps/lookup               # ?workshop_ids=a,b,c (max 200): which are in the library
+GET    /guilds/{guild_id}/channels  # admin only: text channels, for the setup page
+GET    /tokens, POST /tokens, DELETE /tokens/{id}   # extension API tokens (cookie login only)
+
+# Bot only (X-Internal-Token). Single bot instance assumed.
+GET    /internal/events           # undelivered outbox events, oldest first
+POST   /internal/events/ack       # body: {ids: [...]} — the events actually processed
+GET    /internal/sessions/{id}    # state recovery after a bot restart
+PATCH  /internal/rounds/{id}      # bot stores the map-card message_id
 ```
 
 ## Sync

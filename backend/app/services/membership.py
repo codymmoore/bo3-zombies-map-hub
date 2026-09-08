@@ -53,8 +53,13 @@ class ChannelInfo:
 
 
 class _TtlCache:
-    def __init__(self, ttl: float):
+    """Expired entries are kept on purpose (stale answers during a Discord outage),
+    so growth is bounded by `max_size` instead: when full, expired entries go
+    first, then the oldest."""
+
+    def __init__(self, ttl: float, max_size: int = 5000):
         self._ttl = ttl
+        self._max_size = max_size
         self._data: dict[object, tuple[float, object]] = {}
         self._lock = threading.Lock()
 
@@ -65,8 +70,19 @@ class _TtlCache:
         return time.monotonic() < expires, value
 
     def set(self, key: object, value: object) -> None:
+        now = time.monotonic()
         with self._lock:
-            self._data[key] = (time.monotonic() + self._ttl, value)
+            self._data[key] = (now + self._ttl, value)
+            if len(self._data) > self._max_size:
+                self._evict(now)
+
+    def _evict(self, now: float) -> None:
+        for k in [k for k, (expires, _) in self._data.items() if expires <= now]:
+            del self._data[k]
+        overflow = len(self._data) - self._max_size
+        if overflow > 0:
+            for k in sorted(self._data, key=lambda k: self._data[k][0])[:overflow]:
+                del self._data[k]
 
     def clear(self) -> None:
         with self._lock:

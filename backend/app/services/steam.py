@@ -39,7 +39,8 @@ def parse_workshop_id(value: str) -> str | None:
         parsed = urlparse(value if "://" in value else f"https://{value}")
     except ValueError:
         return None
-    if not parsed.netloc.endswith("steamcommunity.com"):
+    host = parsed.netloc.lower()
+    if host != "steamcommunity.com" and not host.endswith(".steamcommunity.com"):
         return None
     ids = parse_qs(parsed.query).get("id")
     if ids and _DIGITS.match(ids[0]):

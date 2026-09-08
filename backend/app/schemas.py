@@ -146,6 +146,7 @@ class RoundOut(BaseModel):
     status: str
     map: MapOut
     started_at: datetime
+    playing_started_at: datetime | None
     ended_at: datetime | None
     message_id: str | None
     players: list[RoundPlayerOut]
@@ -207,4 +208,5 @@ class EventOut(ORMModel):
 
 
 class EventAck(BaseModel):
-    up_to_id: int
+    # Explicit IDs, not a high-water mark: only what the bot actually processed.
+    ids: list[int] = Field(min_length=1, max_length=200)

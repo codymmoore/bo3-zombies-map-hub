@@ -60,6 +60,7 @@ def round_payload(db: Session, rnd: SessionRound) -> dict:
         "round_number": rnd.round_number,
         "status": rnd.status,
         "started_at": _iso(rnd.started_at),
+        "playing_started_at": _iso(rnd.playing_started_at),
         "ended_at": _iso(rnd.ended_at),
         "message_id": rnd.message_id,
         "map": map_payload(db, rnd.map),

@@ -7,6 +7,8 @@ def test_parse_workshop_id():
     assert parse_workshop_id("https://steamcommunity.com/sharedfiles/filedetails/?id=123456&searchtext=x") == "123456"
     assert parse_workshop_id("steamcommunity.com/workshop/filedetails/?id=42") == "42"
     assert parse_workshop_id("https://example.com/?id=42") is None
+    assert parse_workshop_id("https://notsteamcommunity.com/sharedfiles/filedetails/?id=42") is None
+    assert parse_workshop_id("https://www.steamcommunity.com/sharedfiles/filedetails/?id=42") == "42"
     assert parse_workshop_id("not a thing") is None
     assert parse_workshop_id("") is None
 
@@ -50,6 +52,9 @@ def test_lookup(users):
     r = host.get("/maps/lookup", params={"workshop_ids": "111,222, 555"})
     assert r.status_code == 200
     assert r.json()["found"] == {"111": m["id"]}
+    too_many = ",".join(str(i) for i in range(201))
+    r = host.get("/maps/lookup", params={"workshop_ids": too_many})
+    assert r.status_code == 400 and r.json()["detail"]["code"] == "too_many_ids"
 
 
 def test_list_sort_filter_and_ratings(users):

@@ -65,7 +65,12 @@ def _user_from_cookie(db: Session, settings: Settings, request: Request) -> Curr
 def get_optional_user(request: Request, db: DbDep, settings: SettingsDep) -> CurrentUser | None:
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
-        return _user_from_bearer(db, auth[7:].strip())
+        # A bearer header is an explicit auth attempt: a dead token must surface as
+        # 401 (so the extension can tell the user) rather than degrade to anonymous.
+        user = _user_from_bearer(db, auth[7:].strip())
+        if user is None:
+            raise ApiError(401, "invalid_token", "API token is invalid or revoked")
+        return user
     return _user_from_cookie(db, settings, request)
 
 
